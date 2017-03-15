@@ -911,6 +911,56 @@ public class ChatRoomImpl
         connection.sendPacket(lastPresenceSent);
     }
 
+    private final static Collection<PacketExtension>
+        EMPTY_PRESENCE_LIST = Collections.unmodifiableList(
+            new ArrayList<PacketExtension>(0));
+
+    public Collection<PacketExtension> getPresenceExtensions()
+    {
+        return lastPresenceSent != null
+            ? new ArrayList<>(lastPresenceSent.getExtensions()) : EMPTY_PRESENCE_LIST;
+    }
+
+    public void modifyPresence(Collection<PacketExtension> toRemove,
+                               Collection<PacketExtension> toAdd)
+    {
+        if (lastPresenceSent == null)
+        {
+            logger.error("No presence packet obtained yet");
+            return;
+        }
+
+        XmppProtocolProvider xmppProtocolProvider
+            = (XmppProtocolProvider) getParentProvider();
+
+        // Remove old
+        if (toRemove != null)
+        {
+            for (PacketExtension old : toRemove)
+            {
+                lastPresenceSent.removeExtension(old);
+            }
+        }
+
+        // Add new
+        if (toAdd != null)
+        {
+            for (PacketExtension newExt : toAdd)
+            {
+                lastPresenceSent.addExtension(newExt);
+            }
+        }
+
+        XmppConnection connection = xmppProtocolProvider.getConnectionAdapter();
+        if (connection == null)
+        {
+            logger.error("Failed to send presence extension - no connection");
+            return;
+        }
+
+        connection.sendPacket(lastPresenceSent);
+    }
+
     private ChatMemberImpl addMember(String participant)
     {
         ChatMemberImpl newMember;

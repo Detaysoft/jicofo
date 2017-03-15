@@ -59,6 +59,9 @@ public class JibriDetector
     private static final String JIBRI_ROOM_PNAME
         = "org.jitsi.jicofo.jibri.BREWERY";
 
+    private static final String JIBRI_SIP_ROOM_PNAME
+        = "org.jitsi.jicofo.jibri.SIP_BREWERY";
+
     /**
      * The name fo XMPP MUC room where all Jibris gather to brew together.
      */
@@ -74,6 +77,8 @@ public class JibriDetector
      * {@link JibriEvent}s.
      */
     private final OSGIServiceRef<EventAdmin> eventAdminRef;
+
+    private final boolean isSIP;
 
     /**
      * The <tt>ChatRoom</tt> instance for Jibri brewery.
@@ -96,15 +101,22 @@ public class JibriDetector
         return config.getString(JIBRI_ROOM_PNAME);
     }
 
+    static public String loadSIPBreweryName(ConfigurationService config)
+    {
+        return config.getString(JIBRI_SIP_ROOM_PNAME);
+    }
+
     /**
      * Creates new instance of <tt>JibriDetector</tt>
      * @param protocolProvider the instance fo <tt>ProtocolProviderHandler</tt>
      *        for Jicofo's XMPP connection.
      * @param jibriBreweryName the name of the Jibri brewery MUC room where all
      *        Jibris will gather.
+     * @param isSIP
      */
     public JibriDetector(ProtocolProviderHandler protocolProvider,
-                         String jibriBreweryName)
+                         String jibriBreweryName,
+                         boolean isSIP)
     {
         this.protocolProvider
             = Objects.requireNonNull(protocolProvider, "protocolProvider");
@@ -114,6 +126,7 @@ public class JibriDetector
         this.eventAdminRef
             = new OSGIServiceRef<>(
                     FocusBundleActivator.bundleContext, EventAdmin.class);
+        this.isSIP = isSIP;
     }
 
     /**
@@ -195,6 +208,11 @@ public class JibriDetector
         }
     }
 
+    private String getNickname()
+    {
+        return isSIP ? "SIP Jibri" : "Jibri";
+    }
+
     private void start()
     {
         try
@@ -210,7 +228,9 @@ public class JibriDetector
             chatRoom.addMemberPropertyChangeListener(this);
             chatRoom.join();
 
-            logger.info("Joined JIBRI room: " + jibriBrewery);
+            logger.info(
+                "Joined " + getNickname() + " room: " + jibriBrewery);
+
         }
         catch (OperationFailedException | OperationNotSupportedException e)
         {
@@ -227,7 +247,7 @@ public class JibriDetector
             chatRoom.leave();
             chatRoom = null;
 
-            logger.info("Left JIBRI room: " + jibriBrewery);
+            logger.info("Left " + getNickname() + " room: " + jibriBrewery);
         }
 
         // Clean up the list of Jibris
@@ -305,7 +325,7 @@ public class JibriDetector
             {
                 jibris.remove(jibri);
 
-                logger.info("Removed jibri: " + mucJid);
+                logger.info("Removed " + getNickname() + ": " + mucJid);
 
                 notifyJibriOffline(mucJid);
             }
@@ -314,10 +334,10 @@ public class JibriDetector
         {
             if (jibri == null)
             {
-                jibri = new Jibri(mucJid, status);
+                jibri = new Jibri(mucJid, status, isSIP);
                 jibris.add(jibri);
 
-                logger.info("Added jibri: " + mucJid);
+                logger.info("Added " + getNickname() + ": " + mucJid);
             }
             else
             {
@@ -335,7 +355,8 @@ public class JibriDetector
             else
             {
                 logger.error(
-                        "Unknown Jibri status: " + status + " for " + mucJid);
+                        "Unknown " + getNickname()
+                            + " status: " + status + " for " + mucJid);
             }
         }
     }
@@ -352,14 +373,14 @@ public class JibriDetector
 
     private void notifyJibriStatus(String jibriJid, boolean available)
     {
-        logger.info("Jibri " + jibriJid +" available: " + available);
+        logger.info(getNickname() + " " + jibriJid +" available: " + available);
 
         EventAdmin eventAdmin = eventAdminRef.get();
         if (eventAdmin != null)
         {
             eventAdmin.postEvent(
                     JibriEvent.newStatusChangedEvent(
-                            jibriJid, available));
+                            jibriJid, available, isSIP));
         }
         else
             logger.error("No EventAdmin !");
@@ -367,12 +388,12 @@ public class JibriDetector
 
     private void notifyJibriOffline(String jid)
     {
-        logger.info("Jibri " + jid +" went offline");
+        logger.info(getNickname() +" " + jid +" went offline");
 
         EventAdmin eventAdmin = eventAdminRef.get();
         if (eventAdmin != null)
         {
-            eventAdmin.postEvent(JibriEvent.newWentOfflineEvent(jid));
+            eventAdmin.postEvent(JibriEvent.newWentOfflineEvent(jid, isSIP));
         }
         else
             logger.error("No EventAdmin !");
@@ -393,10 +414,13 @@ public class JibriDetector
          */
         JibriStatusPacketExt.Status status;
 
-        Jibri(String mucJid, JibriStatusPacketExt.Status status)
+        final boolean isSIP;
+
+        Jibri(String mucJid, JibriStatusPacketExt.Status status, boolean isSIP)
         {
             this.mucJid = mucJid;
             this.status = status;
+            this.isSIP = isSIP;
         }
     }
 }

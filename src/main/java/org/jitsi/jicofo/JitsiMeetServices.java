@@ -29,6 +29,7 @@ import org.jitsi.jicofo.event.*;
 import org.jitsi.jicofo.recording.jibri.*;
 import org.jitsi.osgi.*;
 import org.jitsi.protocol.xmpp.*;
+import org.jitsi.service.configuration.*;
 import org.jitsi.util.*;
 
 import org.osgi.framework.*;
@@ -121,6 +122,8 @@ public class JitsiMeetServices
      * Instance of {@link JibriDetector} which manages Jibri instances.
      */
     private JibriDetector jibriDetector;
+
+    private JibriDetector sipJibriDetector;
 
     /**
      * The name of XMPP domain to which Jicofo user logs in.
@@ -328,6 +331,11 @@ public class JitsiMeetServices
         return jibriDetector;
     }
 
+    public JibriDetector getSipJibriDetector()
+    {
+        return sipJibriDetector;
+    }
+
     /**
      * Returns the XMPP address of Jirecon recorder component.
      */
@@ -370,16 +378,27 @@ public class JitsiMeetServices
 
         super.start(bundleContext);
 
-        String jibriBreweryName
-            = JibriDetector.loadBreweryName(
-                    FocusBundleActivator.getConfigService());
+        ConfigurationService configService
+            = FocusBundleActivator.getConfigService();
+
+        String jibriBreweryName = JibriDetector.loadBreweryName(configService);
 
         if (!StringUtils.isNullOrEmpty(jibriBreweryName))
         {
             jibriDetector
-                = new JibriDetector(protocolProvider, jibriBreweryName);
+                = new JibriDetector(protocolProvider, jibriBreweryName, false);
 
             jibriDetector.init();
+        }
+
+        String jibriSipBreweryName
+            = JibriDetector.loadSIPBreweryName(configService);
+
+        if (!StringUtils.isNullOrEmpty(jibriSipBreweryName))
+        {
+            sipJibriDetector
+                = new JibriDetector(protocolProvider, jibriSipBreweryName, true);
+            sipJibriDetector.init();
         }
     }
 
@@ -391,6 +410,12 @@ public class JitsiMeetServices
         {
             jibriDetector.dispose();
             jibriDetector = null;
+        }
+
+        if (sipJibriDetector != null)
+        {
+            sipJibriDetector.dispose();
+            sipJibriDetector = null;
         }
 
         super.stop(bundleContext);

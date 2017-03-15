@@ -26,6 +26,7 @@ import net.java.sip.communicator.util.*;
 
 import org.jitsi.impl.protocol.xmpp.extensions.*;
 import org.jitsi.jicofo.event.*;
+import org.jitsi.jicofo.recording.jibri.*;
 import org.jitsi.jicofo.reservation.*;
 import org.jitsi.protocol.xmpp.*;
 import org.jitsi.protocol.xmpp.colibri.*;
@@ -182,6 +183,8 @@ public class JitsiMeetConferenceImpl
      * Takes care of conference recording.
      */
     private JitsiMeetRecording recording;
+
+    JibriSipGateway jibriSipGateway;
 
     /**
      * Information about Jitsi Meet conference services like videobridge,
@@ -349,6 +352,20 @@ public class JitsiMeetConferenceImpl
                             BridgeEvent.BRIDGE_DOWN
                         },
                         this);
+
+            JibriDetector sipJibriDetector = services.getSipJibriDetector();
+            if (sipJibriDetector != null)
+            {
+                jibriSipGateway
+                    = new JibriSipGateway(
+                            this,
+                            getXmppProvider().getOperationSet(
+                                OperationSetDirectSmackXmpp.class),
+                            FocusBundleActivator.getSharedThreadPool(),
+                            globalConfig);
+
+                jibriSipGateway.init();
+            }
         }
         catch(Exception e)
         {
@@ -368,6 +385,12 @@ public class JitsiMeetConferenceImpl
             return;
 
         started = false;
+
+        if (jibriSipGateway != null)
+        {
+            jibriSipGateway.dispose();
+            jibriSipGateway = null;
+        }
 
         if (eventHandlerRegistration != null)
         {

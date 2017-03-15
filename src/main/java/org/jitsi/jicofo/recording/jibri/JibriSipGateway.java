@@ -1,59 +1,34 @@
-/*
- * Jicofo, the Jitsi Conference Focus.
- *
- * Copyright @ 2015 Atlassian Pty Ltd
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package org.jitsi.jicofo.recording.jibri;
-
-import net.java.sip.communicator.impl.protocol.jabber.extensions.colibri.*;
 
 import net.java.sip.communicator.impl.protocol.jabber.extensions.jibri.*;
 import net.java.sip.communicator.service.protocol.*;
 import org.jitsi.eventadmin.*;
 import org.jitsi.jicofo.*;
-import org.jitsi.jicofo.recording.*;
 import org.jitsi.osgi.*;
 import org.jitsi.protocol.xmpp.*;
 import org.jitsi.protocol.xmpp.util.*;
 import org.jitsi.util.*;
-
+import org.jivesoftware.smack.*;
+import org.jivesoftware.smack.filter.*;
 import org.jivesoftware.smack.packet.*;
 
 import java.util.*;
 import java.util.concurrent.*;
 
 /**
- * Handles conference recording through Jibri.
- * Waits for updates from {@link JibriDetector} about recorder instance
- * availability and publishes that information in Jicofo's MUC presence.
- * Handles incoming Jibri IQs coming from conference moderator to
- * start/stop the recording.
  *
- * @author Pawel Domas
- * @author Sam Whited
  */
-public class JibriRecorder
-    extends Recorder
-    implements JibriSessionOwner
+public class JibriSipGateway
+    implements PacketListener, PacketFilter, JibriSessionOwner
 {
     /**
      * The class logger which can be used to override logging level inherited
      * from {@link JitsiMeetConference}.
      */
     static private final Logger classLogger
-        = Logger.getLogger(JibriRecorder.class);
+        = Logger.getLogger(JibriSipGateway.class);
+
+    private final OperationSetDirectSmackXmpp xmpp;
 
     /**
      * Returns <tt>true</tt> if given <tt>status</tt> indicates that Jibri is in
@@ -64,9 +39,6 @@ public class JibriRecorder
         return JibriIq.Status.PENDING.equals(status)
             || JibriIq.Status.RETRYING.equals(status);
     }
-
-    //private final Jibri jibri;
-    private JibriSession jibriSession;
 
     /**
      * Recorded <tt>JitsiMeetConferenceImpl</tt>.
@@ -88,7 +60,7 @@ public class JibriRecorder
     /**
      * Current Jibri recording status.
      */
-    private JibriIq.Status jibriStatus = JibriIq.Status.UNDEFINED;
+    //private JibriIq.Status jibriStatus = JibriIq.Status.UNDEFINED;
 
     /**
      * Meet tools instance used to inject packet extensions to Jicofo's MUC
@@ -111,7 +83,10 @@ public class JibriRecorder
      * Helper class that registers for {@link JibriEvent}s in the OSGi context
      * obtained from the {@link FocusBundleActivator}.
      */
-    private final JibriEventHandler jibriEventHandler = new JibriEventHandler();
+    private final JibriEventHandler jibriEventHandler
+        = new JibriEventHandler();
+
+    private Map<String, JibriSession> sipSessions = new HashMap<>();
 
     /**
      * Creates new instance of <tt>JibriRecorder</tt>.
@@ -122,20 +97,19 @@ public class JibriRecorder
      * @param globalConfig the global config that provides some values required
      *                     by <tt>JibriRecorder</tt> to work.
      */
-    public JibriRecorder(JitsiMeetConferenceImpl         conference,
+    public JibriSipGateway(JitsiMeetConferenceImpl         conference,
                          OperationSetDirectSmackXmpp     xmpp,
                          ScheduledExecutorService        scheduledExecutor,
                          JitsiMeetGlobalConfig           globalConfig)
     {
-        super(null, xmpp);
-
+        this.xmpp = Objects.requireNonNull(xmpp, "xmpp");
         this.conference = Objects.requireNonNull(conference, "conference");
         this.scheduledExecutor
             = Objects.requireNonNull(scheduledExecutor, "scheduledExecutor");
         this.globalConfig = Objects.requireNonNull(globalConfig, "globalConfig");
 
         jibriDetector
-            = conference.getServices().getJibriDetector();
+            = conference.getServices().getSipJibriDetector();
 
         ProtocolProviderService protocolService = conference.getXmppProvider();
 
@@ -150,11 +124,8 @@ public class JibriRecorder
      *
      * {@inheritDoc}
      */
-    @Override
     public void init()
     {
-        super.init();
-
         try
         {
             jibriEventHandler.start(FocusBundleActivator.bundleContext);
@@ -165,12 +136,13 @@ public class JibriRecorder
         }
 
         updateJibriAvailability();
+
+        xmpp.addPacketHandler(this, this);
     }
 
     /**
      * {@inheritDoc}
      */
-    @Override
     public void dispose()
     {
         try
@@ -182,43 +154,24 @@ public class JibriRecorder
             logger.error("Failed to stop Jibri event handler: " + e, e);
         }
 
-        if (this.jibriSession != null)
+        try
         {
-            this.jibriSession.stop();
+            List<JibriSession> sessions = new ArrayList<>(sipSessions.values());
+            for (JibriSession session : sessions)
+            {
+                session.stop();
+            }
         }
-
-        super.dispose();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public boolean isRecording()
-    {
-        return jibriSession != null;
-    }
-
-    /**
-     * Not implemented in Jibri Recorder
-     *
-     * {@inheritDoc}
-     */
-    @Override
-    public boolean setRecording(String from, String token,
-                                ColibriConferenceIQ.Recording.State doRecord,
-                                String path)
-    {
-        // NOT USED
-
-        return false;
+        finally
+        {
+            sipSessions.clear();
+        }
     }
 
     private String getRoomName()
     {
         return conference.getRoomName();
     }
-
 
     /**
      * <tt>JibriIq</tt> processing.
@@ -230,8 +183,8 @@ public class JibriRecorder
     {
         //if (logger.isDebugEnabled())
         //{
-            logger.info(
-                "Processing an IQ: " + packet.toXML());
+        logger.info(
+            "Processing an IQ: " + packet.toXML());
         //}
 
         IQ iq = (IQ) packet;
@@ -279,9 +232,19 @@ public class JibriRecorder
     {
         // Do not process if it belongs to the recording session
         // FIXME should accept only packets coming from MUC
-        return !(jibriSession != null && jibriSession.accept(packet))
+        return !comesFromSipSession(packet)
             && packet instanceof JibriIq
-            && StringUtils.isNullOrEmpty(((JibriIq)packet).getSipAddress());
+            && !StringUtils.isNullOrEmpty(((JibriIq)(packet)).getSipAddress());
+    }
+
+    private boolean comesFromSipSession(Packet p)
+    {
+        for (JibriSession session : sipSessions.values())
+        {
+            if (session.accept(p))
+                return true;
+        }
+        return false;
     }
 
     /**
@@ -290,33 +253,30 @@ public class JibriRecorder
      */
     private void updateJibriAvailability()
     {
-        if (jibriSession != null)
-            return;
-
         if (jibriDetector.selectJibri() != null)
         {
-            setJibriStatus(JibriIq.Status.OFF);
+            setAvailabilityStatus(JibriIq.Status.AVAILABLE);
         }
         else if (jibriDetector.isAnyJibriConnected())
         {
-            setJibriStatus(JibriIq.Status.BUSY);
+            setAvailabilityStatus(JibriIq.Status.BUSY);
         }
         else
         {
-            setJibriStatus(JibriIq.Status.UNDEFINED);
+            setAvailabilityStatus(JibriIq.Status.UNDEFINED);
         }
     }
 
-    private void setJibriStatus(JibriIq.Status newStatus)
+    private void setAvailabilityStatus(JibriIq.Status newStatus)
     {
-        setJibriStatus(newStatus, null);
+        setAvailabilityStatus(newStatus, null);
     }
 
     @Override
     public void onSessionStateChanged(
         JibriSession jibriSession, JibriIq.Status newStatus, XMPPError error)
     {
-        if (this.jibriSession != jibriSession)
+        if (!sipSessions.values().contains(jibriSession))
         {
             logger.error(
                 "onSessionStateChanged for unknown session: " + jibriSession);
@@ -324,39 +284,85 @@ public class JibriRecorder
         }
 
         // FIXME
-        boolean recordingStopped
+        boolean sessionStoped
             = JibriIq.Status.FAILED.equals(newStatus) ||
-                JibriIq.Status.OFF.equals(newStatus);
+                    JibriIq.Status.OFF.equals(newStatus);
 
-        setJibriStatus(newStatus, error);
+        setJibriStatus(jibriSession, newStatus, error);
 
-        if (recordingStopped)
+        if (sessionStoped)
         {
-            this.jibriSession = null;
+            String sipAddress = jibriSession.getSipAddress();
+            sipSessions.remove(sipAddress);
+
+            logger.info("Removing SIP call: " + sipAddress);
+
             updateJibriAvailability();
         }
     }
 
-    private void setJibriStatus(JibriIq.Status newStatus, XMPPError error)
+    private void setAvailabilityStatus(JibriIq.Status newStatus, XMPPError error)
     {
-        jibriStatus = newStatus;
+        //jibriStatus = newStatus;
 
-        RecordingStatus recordingStatus = new RecordingStatus();
+        SipGatewayStatus sipGatewayStatus = new SipGatewayStatus();
 
-        recordingStatus.setStatus(newStatus);
+        sipGatewayStatus.setStatus(newStatus);
 
-        recordingStatus.setError(error);
+        sipGatewayStatus.setError(error);
 
         logger.info(
-            "Publish new JIBRI status: "
-                + recordingStatus.toXML() + " in: " + getRoomName());
+            "Publish new SIP JIBRI status: "
+                + sipGatewayStatus.toXML() + " in: " + getRoomName());
 
         ChatRoom2 chatRoom2 = conference.getChatRoom();
 
         // Publish that in the presence
         if (chatRoom2 != null)
         {
-            meetTools.sendPresenceExtension(chatRoom2, recordingStatus);
+            meetTools.sendPresenceExtension(chatRoom2, sipGatewayStatus);
+        }
+    }
+
+    private void setJibriStatus(JibriSession session,
+                                JibriIq.Status newStatus, XMPPError error)
+    {
+        SipCallState sipCallState = new SipCallState();
+
+        sipCallState.setState(newStatus);
+
+        sipCallState.setError(error);
+
+        sipCallState.setSipAddress(session.getSipAddress());
+
+        logger.info(
+            "Publish new Jibri SIP status for: " + session.getSipAddress()
+                + sipCallState.toXML() + " in: " + getRoomName());
+
+        ChatRoom2 chatRoom2 = conference.getChatRoom();
+
+        // Publish that in the presence
+        if (chatRoom2 != null)
+        {
+            Collection<PacketExtension> oldExtension
+                = chatRoom2.getPresenceExtensions();
+            LinkedList<PacketExtension> toRemove = new LinkedList<>();
+            for (PacketExtension ext : oldExtension)
+            {
+                // Exclude all that do not match
+                if (ext instanceof  SipCallState
+                    && session.getSipAddress().equals(
+                            ((SipCallState)ext).getSipAddress()))
+                {
+                    toRemove.add(ext);
+                }
+            }
+            ArrayList<PacketExtension> newExt = new ArrayList<>();
+            newExt.add(sipCallState);
+
+            chatRoom2.modifyPresence(toRemove, newExt);
+
+            //meetTools.sendPresenceExtension(chatRoom2, sipCallState);
         }
     }
 
@@ -366,9 +372,8 @@ public class JibriRecorder
         String senderMucJid = sender.getContactAddress();
         //if (logger.isDebugEnabled())
         //{
-            logger.info(
-                "Jibri request from " + senderMucJid
-                    + " iq: " + iq.toXML());
+        logger.info(
+            "Jibri request from " + senderMucJid + " iq: " + iq.toXML());
         //}
 
         JibriIq.Action action = iq.getAction();
@@ -383,17 +388,19 @@ public class JibriRecorder
             return;
         }
 
+        String displayName = iq.getDisplayName();
+        String sipAddress = iq.getSipAddress();
+        JibriSession jibriSession = sipSessions.get(sipAddress);
+
         // start ?
         if (JibriIq.Action.START.equals(action) &&
-            JibriIq.Status.OFF.equals(jibriStatus) &&
+            //JibriIq.Status.OFF.equals(jibriStatus) &&
             jibriSession == null)
         {
             // Store stream ID
-            String streamID = iq.getStreamId();
-            String displayName = iq.getDisplayName();
-            String sipAddress = iq.getSipAddress();
+
             // Proceed if not empty
-            if (!StringUtils.isNullOrEmpty(streamID))
+            if (!StringUtils.isNullOrEmpty(sipAddress))
             {
                 // ACK the request immediately to simplify the flow,
                 // any error will be passed with the FAILED state
@@ -406,8 +413,10 @@ public class JibriRecorder
                             xmpp,
                             scheduledExecutor,
                             jibriDetector,
-                            false, sipAddress, displayName, streamID,
+                            false, sipAddress, displayName, null,
                             classLogger);
+
+                sipSessions.put(sipAddress, jibriSession);
                 // Try starting Jibri on separate thread with retries
                 jibriSession.start();
                 return;
@@ -424,40 +433,41 @@ public class JibriRecorder
         }
         // stop ?
         else if (JibriIq.Action.STOP.equals(action) &&
-            jibriSession != null &&
-            (JibriIq.Status.ON.equals(jibriStatus) ||
-                isStartingStatus(jibriStatus)))
+            jibriSession != null
+            // FIXME
+            /*(JibriIq.Status.ON.equals(jibriStatus) ||
+                isStartingStatus(jibriStatus))*/)
         {
             // XXX FIXME: this is synchronous and will probably block the smack
             // thread that executes processPacket().
             //try
             //{
-                XMPPError error = jibriSession.stop();
-                sendPacket(
-                    error == null
-                        ? IQ.createResultIQ(iq)
-                        : IQ.createErrorResponse(iq, error));
+            XMPPError error = jibriSession.stop();
+            sendPacket(
+                error == null
+                    ? IQ.createResultIQ(iq)
+                    : IQ.createErrorResponse(iq, error));
             //}
             //catch (OperationFailedException e)
             //{
-                // XXX the XMPP connection is broken
-                // This instance shall be disposed soon after
-                //logger.error("Failed to send stop IQ - XMPP disconnected", e);
-                // FIXME deal with it
-                //recordingStopped(null, false /* do not send status update */);
+            // XXX the XMPP connection is broken
+            // This instance shall be disposed soon after
+            //logger.error("Failed to send stop IQ - XMPP disconnected", e);
+            // FIXME deal with it
+            //recordingStopped(null, false /* do not send status update */);
             //}
             return;
         }
 
         logger.warn(
-            "Discarded: " + iq.toXML() + " - nothing to be done, "
-                + "recording status:" + jibriStatus);
+            "Discarded: " + iq.toXML() + " - nothing to be done, ");
+                //+ "recording status:" + jibriSession.getStatus());
 
         // Bad request
         sendErrorResponse(
             iq, XMPPError.Condition.bad_request,
-            "Unable to handle: '" + action
-                + "' in state: '" + jibriStatus + "'");
+            "Unable to handle: '" + action);
+                //+ "' in state: '" + jibriStatus + "'");
     }
 
     private boolean verifyModeratorRole(JibriIq iq)
@@ -504,27 +514,6 @@ public class JibriRecorder
         );
     }
 
-    // FIXME jibriJid and idle are not really used ?
-    synchronized private void onJibriStatusChanged(String    jibriJid,
-                                                   boolean   idle)
-    {
-        // We listen to status updates coming from our Jibri through IQs
-        // if recording is in progress(recorder JID is not null),
-        // otherwise it is fine to update Jibri recording availability here
-        if (jibriSession == null)
-        {
-            updateJibriAvailability();
-        }
-    }
-
-    synchronized private void onJibriOffline(final String jibriJid)
-    {
-        if (jibriSession == null)
-        {
-            updateJibriAvailability();
-        }
-    }
-
     /**
      * Helper class handles registration for the {@link JibriEvent}s.
      */
@@ -559,7 +548,10 @@ public class JibriRecorder
             {
                 case JibriEvent.WENT_OFFLINE:
                 case JibriEvent.STATUS_CHANGED:
-                    updateJibriAvailability();
+                    synchronized (JibriSipGateway.this)
+                    {
+                        updateJibriAvailability();
+                    }
                     break;
                 default:
                     logger.error("Invalid topic: " + topic);

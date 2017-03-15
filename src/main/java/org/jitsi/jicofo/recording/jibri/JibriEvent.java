@@ -54,6 +54,8 @@ public class JibriEvent
      */
     private final static String IS_IDLE_KEY = "jibri.is_idle";
 
+    private final static String IS_SIP_KEY = "jibri.is_sip";
+
     /**
      * Used to init the properties passed to the constructor.
      * @param jibriJid the Jibri JID(XMPP address)
@@ -61,10 +63,12 @@ public class JibriEvent
      *        <tt>null</tt> if it should not be included.
      */
     static private Dictionary<String, Object> initDictionary(String    jibriJid,
-                                                             Boolean   isIdle)
+                                                             Boolean   isIdle,
+                                                             boolean   isSIP)
     {
         Dictionary<String, Object> props = new Hashtable<>();
         props.put(JIBRI_JID_KEY, jibriJid);
+        props.put(IS_SIP_KEY, isSIP);
         if (isIdle != null)
             props.put(IS_IDLE_KEY, isIdle);
         return props;
@@ -81,9 +85,10 @@ public class JibriEvent
      *         <tt>jibriJid</tt>.
      */
     static public JibriEvent newStatusChangedEvent(String     jibriJid,
-                                                   boolean    isIdle)
+                                                   boolean    isIdle,
+                                                   boolean    isSIP)
     {
-        return new JibriEvent(STATUS_CHANGED, jibriJid, isIdle);
+        return new JibriEvent(STATUS_CHANGED, jibriJid, isIdle, isSIP);
     }
 
     /**
@@ -94,9 +99,9 @@ public class JibriEvent
      * @return {@link #WENT_OFFLINE} <tt>JibriEvent</tt> for given
      *         <tt>jibriJid</tt>.
      */
-    static public JibriEvent newWentOfflineEvent(String jibriJid)
+    static public JibriEvent newWentOfflineEvent(String jibriJid, boolean isSIP)
     {
-        return new JibriEvent(WENT_OFFLINE, jibriJid, null);
+        return new JibriEvent(WENT_OFFLINE, jibriJid, null, isSIP);
     }
 
     /**
@@ -119,9 +124,10 @@ public class JibriEvent
         }
     }
 
-    private JibriEvent(String topic, String jibriJid, Boolean isIdle)
+    private JibriEvent(String topic,
+                       String jibriJid, Boolean isIdle, boolean isSIP)
     {
-        super(topic, initDictionary(jibriJid, isIdle));
+        super(topic, initDictionary(jibriJid, isIdle, isSIP));
     }
 
     /**
@@ -154,5 +160,11 @@ public class JibriEvent
                 "Trying to access 'isIdle' on wrong event type: " + getTopic());
         }
         return isIdle;
+    }
+
+    public boolean isSIP()
+    {
+        Boolean isSIP = (Boolean) this.getProperty(IS_SIP_KEY);
+        return isSIP != null ? isSIP : false;
     }
 }
