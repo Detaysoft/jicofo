@@ -27,6 +27,7 @@ import net.java.sip.communicator.util.Logger;
 
 import org.jitsi.impl.protocol.xmpp.extensions.*;
 import org.jitsi.jicofo.event.*;
+import org.jitsi.jicofo.jigasi.*;
 import org.jitsi.protocol.xmpp.*;
 import org.jitsi.protocol.xmpp.colibri.*;
 import org.jitsi.protocol.xmpp.util.*;
@@ -309,7 +310,10 @@ public class MeetExtensionsHandler
         }
 
         // Check if Jigasi is available
-        String jigasiJid = conference.getServices().getSipGateway();
+        String jigasiJid;
+        JigasiDetector detector = conference.getServices().getJigasiDetector();
+        if (detector == null || (jigasiJid = detector.selectJigasi()) == null)
+            jigasiJid = conference.getServices().getSipGateway();
 
         if (StringUtils.isNullOrEmpty(jigasiJid))
         {

@@ -24,6 +24,7 @@ import net.java.sip.communicator.util.Logger;
 import org.jitsi.impl.protocol.xmpp.extensions.*;
 import org.jitsi.jicofo.*;
 import org.jitsi.jicofo.auth.*;
+import org.jitsi.jicofo.jigasi.*;
 import org.jitsi.jicofo.reservation.*;
 import org.jitsi.meet.*;
 import org.jitsi.service.configuration.*;
@@ -466,7 +467,10 @@ public class FocusComponent
                         String.valueOf(authAuthority.isExternal())));
         }
 
-        if (focusManager.getJitsiMeetServices().getSipGateway() != null)
+        JigasiDetector detector
+            = focusManager.getJitsiMeetServices().getJigasiDetector();
+        if (focusManager.getJitsiMeetServices().getSipGateway() != null
+            || (detector != null && detector.isAnyInstanceConnected()))
         {
             response.addProperty(
                 new ConferenceIq.Property("sipGatewayEnabled", "true"));
