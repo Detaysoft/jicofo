@@ -81,16 +81,27 @@ public abstract class BaseBrewery<T extends PacketExtension>
     private final String extensionNamespace;
 
     /**
+     * Whether the extension is required in order to add the reporting instance
+     * to the list of operating instances.
+     */
+    private final boolean requiredExtension;
+
+    /**
      * Creates new instance of <tt>BaseBrewery</tt>
      * @param protocolProvider the instance fo <tt>ProtocolProviderHandler</tt>
      * for Jicofo's XMPP connection.
      * @param breweryName the name of the brewery MUC room where all
      * brewing instance will gather.
+     * @param presenceExtensionElementName the element name of the extension
+     * @param presenceExtensionNamespace the namespace of the extension
+     * @param requiredExtension whether the extension is required in order to
+     * add the reporting instance to the list of operating instances
      */
     public BaseBrewery(ProtocolProviderHandler protocolProvider,
         String breweryName,
         String presenceExtensionElementName,
-        String presenceExtensionNamespace)
+        String presenceExtensionNamespace,
+        boolean requiredExtension)
     {
         this.protocolProvider
             = Objects.requireNonNull(protocolProvider, "protocolProvider");
@@ -99,6 +110,7 @@ public abstract class BaseBrewery<T extends PacketExtension>
         this.breweryName = breweryName;
         this.extensionElementName = presenceExtensionElementName;
         this.extensionNamespace = presenceExtensionNamespace;
+        this.requiredExtension = requiredExtension;
     }
 
     /**
@@ -263,7 +275,8 @@ public abstract class BaseBrewery<T extends PacketExtension>
         PacketExtension ext
             = presence.getExtension(extensionElementName, extensionNamespace);
 
-        if (ext == null)
+        // if the extension is required and we do not have it skip processing
+        if (ext == null && requiredExtension)
             return;
 
         processInstanceStatusChanged(member.getContactAddress(), (T) ext);

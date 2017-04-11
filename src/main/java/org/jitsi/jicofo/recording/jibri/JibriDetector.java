@@ -80,7 +80,8 @@ public class JibriDetector
             protocolProvider,
             jibriBreweryName,
             JibriStatusPacketExt.ELEMENT_NAME,
-            JibriStatusPacketExt.NAMESPACE);
+            JibriStatusPacketExt.NAMESPACE,
+            true);
 
         this.eventAdminRef
             = new OSGIServiceRef<>(
