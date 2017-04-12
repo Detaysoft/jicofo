@@ -17,14 +17,14 @@
  */
 package org.jitsi.jicofo.recording;
 
+import org.jitsi.jicofo.*;
 import org.jitsi.protocol.xmpp.*;
 
 import org.jivesoftware.smack.*;
 import org.jivesoftware.smack.filter.*;
 
 import net.java.sip.communicator.impl.protocol.jabber.extensions.colibri.ColibriConferenceIQ.Recording.*;
-
-
+import org.jivesoftware.smack.packet.*;
 
 import java.util.*;
 
@@ -79,6 +79,12 @@ public abstract class Recorder
     public abstract boolean isRecording();
 
     /**
+     * Process incoming packet.
+     * @param packet the packet to process.
+     */
+    public abstract void processIncomingPacket(Packet packet);
+
+    /**
      * Toggles recording status of the conference handled by this instance.
      *
      * @param from JID of the user that wants to modify recording status.
@@ -92,4 +98,46 @@ public abstract class Recorder
      */
     public abstract boolean setRecording(
         String from, String token, State doRecord, String path);
+
+    /**
+     * Incoming packets processing logic. Process the packet in separate thread
+     * so we do not block readers thread.
+     * <p>
+     * {@inheritDoc}
+     */
+    @Override
+    public void processPacket(Packet packet)
+    {
+        // process packet in separate thread to avoid blocking reader's thread
+        FocusBundleActivator.getSharedThreadPool()
+            .submit(new IncomingPacketProcessor(packet));
+    }
+
+    /**
+     * Process incoming packets.
+     */
+    private class IncomingPacketProcessor
+        implements Runnable
+    {
+        /**
+         * The packet to process.
+         */
+        private final Packet packet;
+
+        /**
+         * Constructs <tt>IncomingPacketProcessor</tt> with the packet
+         * to process.
+         * @param packet the packet to process.
+         */
+        public IncomingPacketProcessor(Packet packet)
+        {
+            this.packet = packet;
+        }
+
+        @Override
+        public void run()
+        {
+            processIncomingPacket(this.packet);
+        }
+    }
 }

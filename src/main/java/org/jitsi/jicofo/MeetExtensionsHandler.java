@@ -131,26 +131,13 @@ public class MeetExtensionsHandler
             return;
         }
 
-        if (packet instanceof ColibriConferenceIQ)
-        {
-            handleColibriIq((ColibriConferenceIQ) packet);
-        }
-        else if (packet instanceof MuteIq)
-        {
-            handleMuteIq((MuteIq) packet);
-        }
-        else if (packet instanceof RayoIqProvider.DialIq)
-        {
-            handleRayoIQ((RayoIqProvider.DialIq) packet);
-        }
-        else if (packet instanceof Presence)
-        {
-            handlePresence((Presence) packet);
-        }
-        else
-        {
-            logger.error("Unexpected packet: " + packet.toXML());
-        }
+        // process incoming packets in separate thread so we do not block
+        // smack's packet reader thread, as some packet processing like rayo one
+        // blocks the thread while waiting for receiving the result and
+        // in the meantime the component receiving rayo command can send other
+        // packets
+        FocusBundleActivator.getSharedThreadPool()
+            .submit(new IncomingPacketProcessor(packet));
     }
 
     private boolean acceptColibriIQ(Packet packet)
@@ -496,5 +483,52 @@ public class MeetExtensionsHandler
         result.setTo(request.getFrom());
         result.setError(error);
         return result;
+    }
+
+    /**
+     * Process incoming packets by their type.
+     */
+    private class IncomingPacketProcessor
+        implements Runnable
+    {
+        /**
+         * The packet to process.
+         */
+        private final Packet packet;
+
+        /**
+         * Constructs <tt>IncomingPacketProcessor</tt> with the packet
+         * to process.
+         * @param packet the packet to process.
+         */
+        public IncomingPacketProcessor(Packet packet)
+        {
+            this.packet = packet;
+        }
+
+        @Override
+        public void run()
+        {
+            if (packet instanceof ColibriConferenceIQ)
+            {
+                handleColibriIq((ColibriConferenceIQ) packet);
+            }
+            else if (packet instanceof MuteIq)
+            {
+                handleMuteIq((MuteIq) packet);
+            }
+            else if (packet instanceof RayoIqProvider.DialIq)
+            {
+                handleRayoIQ((RayoIqProvider.DialIq) packet);
+            }
+            else if (packet instanceof Presence)
+            {
+                handlePresence((Presence) packet);
+            }
+            else
+            {
+                logger.error("Unexpected packet: " + packet.toXML());
+            }
+        }
     }
 }

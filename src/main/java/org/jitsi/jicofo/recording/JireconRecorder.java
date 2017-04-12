@@ -210,7 +210,7 @@ public class JireconRecorder
      * {@inheritDoc}
      */
     @Override
-    public void processPacket(Packet packet)
+    public void processIncomingPacket(Packet packet)
     {
         JireconIq recording = (JireconIq) packet;
 

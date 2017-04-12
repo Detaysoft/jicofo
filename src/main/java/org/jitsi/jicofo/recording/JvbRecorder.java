@@ -186,7 +186,7 @@ public class JvbRecorder
     }
 
     @Override
-    public void processPacket(Packet packet)
+    public void processIncomingPacket(Packet packet)
     {
         //FIXME: should notify the conference about status change,
         //       but currently all processing is done on the fly using

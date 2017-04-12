@@ -386,7 +386,7 @@ public class JibriRecorder
      * {@inheritDoc}
      */
     @Override
-    synchronized public void processPacket(Packet packet)
+    synchronized public void processIncomingPacket(Packet packet)
     {
         if (logger.isDebugEnabled())
         {
